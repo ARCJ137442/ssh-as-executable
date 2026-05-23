@@ -2,7 +2,7 @@
 .SYNOPSIS
     SSH Proxy Exe Factory - 构建碎片化 SSH 代理 exe
 .DESCRIPTION
-    .\build.ps1 -TargetHost "121.89.202.92" -User "root" -KeyPath "C:\Users\56506\.ssh\id_ed25519" -Name "server1"
+    .\build.ps1 -TargetHost "YOUR_SERVER_IP" -User "root" -KeyPath "~\.ssh\YOUR_KEY_NAME" -Name "server1"
 #>
 
 param(
