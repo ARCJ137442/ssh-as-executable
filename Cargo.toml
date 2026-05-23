@@ -1,0 +1,14 @@
+[package]
+name = "app"
+version = "1.0.0"
+edition = "2021"
+
+[build-dependencies]
+
+[dependencies]
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"
