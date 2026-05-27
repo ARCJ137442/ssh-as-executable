@@ -20,7 +20,15 @@ fn main() {
     let ssh_flag = generated::get_ssh_flag();
 
     // 解析命令行参数
-    let (target, cmd_to_run) = if args.len() > 1 {
+    let (target, cmd_to_run) = if args.len() > 1 && args[1] == "--stdin" {
+        // --stdin：从 stdin 读取命令
+        let mut stdin_input = String::new();
+        if io::stdin().read_to_string(&mut stdin_input).is_ok() {
+            (format!("{}@{}", user, host), stdin_input.trim().to_string())
+        } else {
+            (format!("{}@{}", user, host), String::new())
+        }
+    } else if args.len() > 1 {
         // 命令行有参数
         let a = &args[1];
         if a.contains('@') {
@@ -29,18 +37,8 @@ fn main() {
             (format!("{}@{}", user, host), args[1..].join(" "))
         }
     } else {
-        // 无参数，检查 stdin
-        let mut stdin_input = String::new();
-        if io::stdin().read_to_string(&mut stdin_input).is_ok() {
-            let trimmed = stdin_input.trim().to_string();
-            if trimmed.is_empty() {
-                (format!("{}@{}", user, host), String::new())
-            } else {
-                (format!("{}@{}", user, host), trimmed)
-            }
-        } else {
-            (format!("{}@{}", user, host), String::new())
-        }
+        // 无参数：交互式 SSH
+        (format!("{}@{}", user, host), String::new())
     };
 
     let cmd_args: Vec<&str> = if cmd_to_run.is_empty() {

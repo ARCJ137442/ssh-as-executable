@@ -41,6 +41,10 @@ cargo build --release
 ./target/release/app.exe "whoami"
 ./target/release/app.exe "docker ps"
 
+# 从 stdin 读取命令执行
+echo "whoami" | ./target/release/app.exe --stdin
+./target/release/app.exe --stdin < cmd.sh
+
 # 交互式 SSH
 ./target/release/app.exe
 ```
