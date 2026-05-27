@@ -1,12 +1,17 @@
 use std::process::Command;
 use std::env;
+use std::io::{self, Read};
 
 mod generated;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    // 无帮助信息，不泄露任何提示
+    // --help 显示帮助
+    if args.len() > 1 && args[1] == "--help" {
+        println!("{}", generated::get_help());
+        return;
+    }
 
     let key_path = generated::get_key_path();
     let host = generated::get_host();
@@ -15,22 +20,33 @@ fn main() {
     let ssh_flag = generated::get_ssh_flag();
 
     // 解析命令行参数
-    let (target, cmd_args) = if args.len() < 2 {
-        (format!("{}@{}", user, host), vec![])
-    } else if args.len() == 2 {
+    let (target, cmd_to_run) = if args.len() > 1 {
+        // 命令行有参数
         let a = &args[1];
         if a.contains('@') {
-            (a.clone(), vec![])
+            (a.clone(), args[2..].join(" "))
         } else {
-            (format!("{}@{}", user, host), vec![a.clone()])
+            (format!("{}@{}", user, host), args[1..].join(" "))
         }
     } else {
-        let a = &args[1];
-        if a.contains('@') {
-            (a.clone(), args[2..].to_vec())
+        // 无参数，检查 stdin
+        let mut stdin_input = String::new();
+        if io::stdin().read_to_string(&mut stdin_input).is_ok() {
+            let trimmed = stdin_input.trim().to_string();
+            if trimmed.is_empty() {
+                (format!("{}@{}", user, host), String::new())
+            } else {
+                (format!("{}@{}", user, host), trimmed)
+            }
         } else {
-            (format!("{}@{}", user, a.clone()), args[2..].to_vec())
+            (format!("{}@{}", user, host), String::new())
         }
+    };
+
+    let cmd_args: Vec<&str> = if cmd_to_run.is_empty() {
+        vec![]
+    } else {
+        vec![cmd_to_run.as_str()]
     };
 
     let mut ssh_args: Vec<&str> = vec![
@@ -40,7 +56,7 @@ fn main() {
         ssh_flag.as_str(),
         target.as_str(),
     ];
-    ssh_args.extend(cmd_args.iter().map(|s| s.as_str()));
+    ssh_args.extend(cmd_args);
 
     let status = Command::new(ssh_cmd.as_str())
         .args(&ssh_args)

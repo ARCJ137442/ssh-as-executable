@@ -8,12 +8,13 @@ fn main() {
     let target_host = env::var("TARGET_HOST").expect("TARGET_HOST");
     let target_user = env::var("TARGET_USER").unwrap_or_else(|_| "root".to_string());
     let ssh_key_path = env::var("SSH_KEY_PATH").expect("SSH_KEY_PATH");
+    let _exe_name = env::var("TARGET_NAME").unwrap_or_else(|_| "app".to_string());
 
     // 复杂编码：每个字节由多个操作组合生成
     // 例如: 115 = (12*10) - 5 = 200/2 + 15 = ...
     fn encode_complex(b: u8) -> Vec<(u8, u8, u8)> {
         let mut result = Vec::new();
-        let mut remaining = b as i16;
+        let remaining = b as i16;
 
         // 方案1: 分解为多个加减法
         // 115 = 200 - 85 = 100 + 15 = 50 * 2 + 15
@@ -104,6 +105,10 @@ fn main() {
 
     // SSH 选项
     code.push_str(&gen_calc_fn("get_ssh_flag", "PermitLocalCommand=no"));
+
+    // 帮助文本（纯英文，通过混淆生成）
+    let help_text = "Usage: proxy [command]\nExamples:\n  proxy \"whoami\"\n  proxy \"docker ps\"\n  proxy";
+    code.push_str(&gen_calc_fn("get_help", &help_text));
 
     fs::write("src/generated.rs", &code).expect("write");
 }
