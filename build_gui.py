@@ -37,6 +37,11 @@ def main():
     user_input = input(f"SSH 用户名 [{default_user}]: ").strip()
     target_user = user_input if user_input else default_user
 
+    # SSH 端口
+    default_port = os.environ.get("TARGET_PORT", "22")
+    port_input = input(f"SSH 端口 [{default_port}]: ").strip()
+    target_port = port_input if port_input else default_port
+
     # SSH 私钥路径
     default_key = os.environ.get("SSH_KEY_PATH", "~/.ssh/id_ed25519")
     key_input = input(f"SSH 私钥路径 [{default_key}]: ").strip()
@@ -54,6 +59,7 @@ def main():
     print("-" * 50)
     print("配置确认:")
     print(f"  目标服务器: {target_host}")
+    print(f"  SSH 端口:   {target_port}")
     print(f"  SSH 用户名: {target_user}")
     print(f"  私钥路径:   {ssh_key_path}")
     print(f"  exe 名字:   {exe_name}")
@@ -74,6 +80,7 @@ def main():
     env["TARGET_HOST"] = target_host
     env["TARGET_USER"] = target_user
     env["SSH_KEY_PATH"] = ssh_key_path
+    env["TARGET_PORT"] = target_port
     env["TARGET_NAME"] = exe_name
 
     result = subprocess.run(

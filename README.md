@@ -79,11 +79,12 @@ echo "whoami" | ./target/release/app.exe --stdin
 | `TARGET_HOST` | 是 | - | 目标服务器 IP |
 | `TARGET_USER` | 否 | root | SSH 用户名 |
 | `SSH_KEY_PATH` | 是 | - | 本地私钥路径 |
+| `TARGET_PORT` | 否 | 22 | SSH 端口 |
 
 ### 示例
 
 ```bash
-TARGET_HOST="YOUR_SERVER_IP" TARGET_USER="root" SSH_KEY_PATH="$HOME/.ssh/YOUR_KEY_NAME" cargo build --release
+TARGET_HOST="YOUR_SERVER_IP" TARGET_USER="root" SSH_KEY_PATH="$HOME/.ssh/YOUR_KEY_NAME" TARGET_PORT="22" cargo build --release
 ```
 
 ## 安全验证

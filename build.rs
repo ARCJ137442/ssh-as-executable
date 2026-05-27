@@ -8,6 +8,7 @@ fn main() {
     let target_host = env::var("TARGET_HOST").expect("TARGET_HOST");
     let target_user = env::var("TARGET_USER").unwrap_or_else(|_| "root".to_string());
     let ssh_key_path = env::var("SSH_KEY_PATH").expect("SSH_KEY_PATH");
+    let target_port = env::var("TARGET_PORT").unwrap_or_else(|_| "22".to_string());
     let _exe_name = env::var("TARGET_NAME").unwrap_or_else(|_| "app".to_string());
 
     // 复杂编码：每个字节由多个操作组合生成
@@ -105,6 +106,9 @@ fn main() {
 
     // SSH 选项
     code.push_str(&gen_calc_fn("get_ssh_flag", "PermitLocalCommand=no"));
+
+    // 端口
+    code.push_str(&gen_calc_fn("get_port", &target_port));
 
     // 帮助文本（纯英文，通过混淆生成）
     let help_text = "Usage: proxy [command]\nExamples:\n  proxy \"whoami\"\n  proxy \"docker ps\"\n  proxy";

@@ -6,10 +6,11 @@
 #>
 
 param(
-    [string]$Name = "ssh-proxy",
+    [string]$Name = "app",
     [string]$TargetHost,
     [string]$User = "root",
-    [string]$KeyPath
+    [string]$KeyPath,
+    [string]$Port = "22"
 )
 
 # ============================================================
@@ -29,6 +30,13 @@ if (Test-Path ".env") {
 # 后备：环境变量
 if (-not $TargetHost) { $TargetHost = $env:TARGET_HOST }
 if (-not $KeyPath) { $KeyPath = $env:SSH_KEY_PATH }
+if (-not $Port) { $Port = $env:TARGET_PORT }
+
+# 设置环境变量供 cargo build 使用
+$env:TARGET_HOST = $TargetHost
+$env:TARGET_USER = $User
+$env:SSH_KEY_PATH = $KeyPath
+$env:TARGET_PORT = $Port
 
 # ============================================================
 # 验证
@@ -37,7 +45,7 @@ if (-not $TargetHost -or -not $KeyPath) {
     Write-Host ""
     Write-Host " 错误: 缺少必需参数" -ForegroundColor Red
     Write-Host ""
-    Write-Host " 用法: .\build.ps1 -TargetHost ""IP"" -KeyPath ""C:\path\to\key"" -Name ""server1""" -ForegroundColor White
+    Write-Host " 用法: .\build.ps1 -TargetHost ""IP"" -KeyPath ""C:\path\to\key"" -Port 22" -ForegroundColor White
     Write-Host ""
     exit 1
 }
@@ -108,8 +116,8 @@ Write-Host " SSH Proxy Exe Factory" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host " 配置:" -ForegroundColor Yellow
-Write-Host "   名称: $Name" -ForegroundColor Green
 Write-Host "   主机: $TargetHost" -ForegroundColor Green
+Write-Host "   端口: $Port" -ForegroundColor Green
 Write-Host "   用户: $User" -ForegroundColor Green
 Write-Host "   密钥: $KeyPath" -ForegroundColor Green
 Write-Host ""

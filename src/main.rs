@@ -18,6 +18,7 @@ fn main() {
     let user = generated::get_user();
     let ssh_cmd = generated::get_ssh_cmd();
     let ssh_flag = generated::get_ssh_flag();
+    let port = generated::get_port();
 
     // 解析命令行参数
     let (target, cmd_to_run) = if args.len() > 1 && args[1] == "--stdin" {
@@ -52,8 +53,15 @@ fn main() {
         key_path.as_str(),
         "-o",
         ssh_flag.as_str(),
-        target.as_str(),
     ];
+
+    // 如果端口不是 22，添加 -p 参数
+    if port != "22" {
+        ssh_args.push("-p");
+        ssh_args.push(port.as_str());
+    }
+
+    ssh_args.push(target.as_str());
     ssh_args.extend(cmd_args);
 
     let status = Command::new(ssh_cmd.as_str())
