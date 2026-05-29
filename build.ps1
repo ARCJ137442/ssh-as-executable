@@ -123,14 +123,27 @@ Write-Host "   密钥: $KeyPath" -ForegroundColor Green
 Write-Host ""
 
 Write-Host " 编译中..." -ForegroundColor Yellow
+
+# 强制重新执行 build.rs（cargo 增量编译可能跳过）
+if (Test-Path "build.rs") {
+    (Get-Item "build.rs").LastWriteTime = Get-Date
+}
+
 cargo build --release -j 1 2>&1
 
 if ($LASTEXITCODE -eq 0) {
-    $srcExe = "target\release\ssh-proxy.exe"
+    $srcExe = "target\release\app.exe"
+    if (-not (Test-Path $srcExe)) { $srcExe = "target\release\ssh-proxy.exe" }
     $dstExe = "dist\$Name.exe"
 
     if (Test-Path $srcExe) {
         Copy-Item $srcExe $dstExe -Force
+
+        # 清理敏感文件：生成的混淆代码
+        if (Test-Path "src\generated.rs") {
+            Remove-Item "src\generated.rs" -Force
+            Write-Host "  ✓ src\generated.rs 已删除（敏感混淆数据已清除）" -ForegroundColor Green
+        }
 
         Write-Host ""
         Write-Host " 成功! 输出: dist\$Name.exe" -ForegroundColor Green

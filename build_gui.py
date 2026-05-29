@@ -76,6 +76,10 @@ def main():
     print("正在构建...")
     print()
 
+    # 强制重新执行 build.rs（cargo 增量编译可能跳过）
+    build_rs = Path(__file__).parent / "build.rs"
+    build_rs.touch()
+
     env = os.environ.copy()
     env["TARGET_HOST"] = target_host
     env["TARGET_USER"] = target_user
@@ -101,6 +105,12 @@ def main():
 
     dst_exe = Path(__file__).parent / exe_name
     shutil.copy2(src_exe, dst_exe)
+
+    # 清理敏感文件：生成的混淆代码（含凭据）
+    generated_rs = Path(__file__).parent / "src" / "generated.rs"
+    if generated_rs.exists():
+        generated_rs.unlink()
+        print("  ✓ src/generated.rs 已删除（敏感混淆数据已清除）")
 
     print()
     print("=" * 50)
