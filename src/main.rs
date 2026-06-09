@@ -11,7 +11,13 @@ const ASKPASS_MODE_ENV: &str = "SSH_AS_EXECUTABLE_ASKPASS";
 const ASKPASS_TOKEN_ENV: &str = "SSH_AS_EXECUTABLE_ASKPASS_TOKEN";
 
 fn main() {
+    // 密码模式的关键是让本 exe 具备“双身份”：
+    // 1. 用户直接运行时，它负责拼出 ssh 命令并启动 OpenSSH。
+    // 2. OpenSSH 需要密码时，会按 SSH_ASKPASS 再启动本 exe；这时只输出封装密码。
+    // 这不是绕过 SSH 认证，而是把“人手输入密码”替换成 askpass helper 自动响应。
     if env::var_os(ASKPASS_MODE_ENV).is_some() {
+        // token 只用于区分“被本程序启动的 askpass 调用”和手工误触发；
+        // 密码仍然是 exe 内部可恢复的数据，不等同于系统凭据库或硬件密钥保护。
         if env::var(ASKPASS_TOKEN_ENV).unwrap_or_default() == generated::get_askpass_token() {
             println!("{}", generated::get_password());
             return;
@@ -67,6 +73,8 @@ fn main() {
     let mut ssh_args: Vec<String> = vec!["-o".to_string(), ssh_flag];
 
     if password_mode {
+        // 让 password 模式尽量不受调用机器上已有 SSH agent / 默认私钥影响：
+        // 明确优先 password 与 keyboard-interactive，禁用 pubkey，并限制密码提示次数。
         ssh_args.extend([
             "-o".to_string(),
             "PreferredAuthentications=password,keyboard-interactive".to_string(),
@@ -119,6 +127,9 @@ fn run_password_ssh(ssh_cmd: &str, ssh_args: &[String], interactive: bool) -> Re
         .to_string();
 
     let mut command = Command::new(ssh_cmd);
+    // OpenSSH 会执行 SSH_ASKPASS 指向的程序并读取其 stdout 作为密码。
+    // 这里指向当前 exe，再用私有环境变量切换到上面的 askpass 分支。
+    // DISPLAY 是 OpenSSH askpass 路径的历史要求；值本身不需要对应真实图形会话。
     command
         .args(ssh_args)
         .env("SSH_ASKPASS", askpass_path)
@@ -132,6 +143,7 @@ fn run_password_ssh(ssh_cmd: &str, ssh_args: &[String], interactive: bool) -> Re
     if interactive {
         command.stdin(Stdio::inherit());
     } else {
+        // 远程命令场景不使用 PTY，也不从本地 stdin 读数据，保持 key 模式原有的稳定形态。
         command.stdin(Stdio::null());
     }
 

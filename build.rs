@@ -1,5 +1,11 @@
 //! SSH Proxy Exe Factory - Build Script
-//! 数据即算法：所有字符串都通过复杂计算生成
+//!
+//! Cargo 在编译前运行本脚本，把目标主机、用户、认证方式、密钥路径或密码
+//! 转换成 OUT_DIR/generated.rs 里的 Rust 函数。运行时主程序只调用这些函数
+//! 恢复配置，不需要在源码树里留下 generated.rs。
+//!
+//! 注意：这里做的是“可恢复混淆”，目的是提高 strings/简单静态扫描直接拿到
+//! 原始配置的成本；它不是不可逆加密，也不能提供硬件密钥或系统凭据库级别的保护。
 
 use std::env;
 use std::fs;
@@ -54,8 +60,8 @@ fn main() {
         ssh_password.clear();
     }
 
-    // 复杂编码：每个字节由多个操作组合生成
-    // 例如: 115 = (12*10) - 5 = 200/2 + 15 = ...
+    // 复杂编码：每个字节由多个操作组合生成。
+    // 目标不是强密码学安全，而是避免敏感字符串作为连续明文进入最终 exe。
     fn encode_complex(b: u8) -> Vec<(u8, u8, u8)> {
         let mut result = Vec::new();
         let remaining = b as i16;
@@ -79,7 +85,8 @@ fn main() {
         result
     }
 
-    // 生成使用复杂计算的函数
+    // 生成使用复杂计算恢复字符串的函数。
+    // std::hint::black_box 和逐字节表达式让编译器更难把结果重新折叠为明文常量。
     fn gen_calc_fn(name: &str, text: &str) -> String {
         let mut s = format!("pub fn {}() -> String {{\n", name);
         s.push_str("    #[inline(never)]\n");
@@ -110,6 +117,8 @@ fn main() {
     }
 
     fn make_askpass_token(parts: &[&str]) -> String {
+        // askpass token 用来确认“输出密码”的子进程是由本 exe 启动的。
+        // 它是误触发保护，不是安全边界：能逆向 exe 的人仍可能恢复 token 与密码。
         let mut a = 0xcbf29ce484222325u64;
         let mut b = 0x9e3779b97f4a7c15u64;
 
@@ -150,6 +159,7 @@ fn main() {
     code.push_str(&gen_calc_fn("get_auth_mode", &auth_mode));
 
     // PASSWORD
+    // key 模式下 ssh_password 已被清空，因此不会生成可恢复密码。
     code.push_str(&gen_calc_fn("get_password", &ssh_password));
 
     // ASKPASS_TOKEN
@@ -209,6 +219,7 @@ fn main() {
         "Usage: proxy [command]\nExamples:\n  proxy \"whoami\"\n  proxy \"docker ps\"\n  proxy";
     code.push_str(&gen_calc_fn("get_help", help_text));
 
+    // 写到 Cargo OUT_DIR，避免 src/generated.rs 出现在仓库里或被误提交。
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
     fs::write(out_dir.join("generated.rs"), &code).expect("write generated.rs");
 }
