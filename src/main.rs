@@ -1,10 +1,24 @@
-use std::process::Command;
 use std::env;
 use std::io::{self, Read};
+use std::process::{Command, Stdio};
 
-mod generated;
+#[allow(dead_code)]
+mod generated {
+    include!(concat!(env!("OUT_DIR"), "/generated.rs"));
+}
+
+const ASKPASS_MODE_ENV: &str = "SSH_AS_EXECUTABLE_ASKPASS";
+const ASKPASS_TOKEN_ENV: &str = "SSH_AS_EXECUTABLE_ASKPASS_TOKEN";
 
 fn main() {
+    if env::var_os(ASKPASS_MODE_ENV).is_some() {
+        if env::var(ASKPASS_TOKEN_ENV).unwrap_or_default() == generated::get_askpass_token() {
+            println!("{}", generated::get_password());
+            return;
+        }
+        std::process::exit(1);
+    }
+
     let args: Vec<String> = env::args().collect();
 
     // --help 显示帮助
@@ -13,9 +27,9 @@ fn main() {
         return;
     }
 
-    let key_path = generated::get_key_path();
     let host = generated::get_host();
     let user = generated::get_user();
+    let auth_mode = generated::get_auth_mode();
     let ssh_cmd = generated::get_ssh_cmd();
     let ssh_flag = generated::get_ssh_flag();
     let port = generated::get_port();
@@ -42,31 +56,87 @@ fn main() {
         (format!("{}@{}", user, host), String::new())
     };
 
-    let cmd_args: Vec<&str> = if cmd_to_run.is_empty() {
-        vec![]
+    let password_mode = auth_mode.eq_ignore_ascii_case("password");
+    let interactive = cmd_to_run.is_empty();
+    let key_path = if password_mode {
+        String::new()
     } else {
-        vec![cmd_to_run.as_str()]
+        generated::get_key_path()
     };
 
-    let mut ssh_args: Vec<&str> = vec![
-        "-i",
-        key_path.as_str(),
-        "-o",
-        ssh_flag.as_str(),
-    ];
+    let mut ssh_args: Vec<String> = vec!["-o".to_string(), ssh_flag];
+
+    if password_mode {
+        ssh_args.extend([
+            "-o".to_string(),
+            "PreferredAuthentications=password,keyboard-interactive".to_string(),
+            "-o".to_string(),
+            "PubkeyAuthentication=no".to_string(),
+            "-o".to_string(),
+            "PasswordAuthentication=yes".to_string(),
+            "-o".to_string(),
+            "NumberOfPasswordPrompts=1".to_string(),
+            "-o".to_string(),
+            "StrictHostKeyChecking=accept-new".to_string(),
+            "-o".to_string(),
+            "ConnectTimeout=15".to_string(),
+        ]);
+    } else {
+        ssh_args.extend(["-i".to_string(), key_path]);
+    }
 
     // 如果端口不是 22，添加 -p 参数
     if port != "22" {
-        ssh_args.push("-p");
-        ssh_args.push(port.as_str());
+        ssh_args.push("-p".to_string());
+        ssh_args.push(port);
     }
 
-    ssh_args.push(target.as_str());
-    ssh_args.extend(cmd_args);
+    ssh_args.push(target);
+    if !cmd_to_run.is_empty() {
+        ssh_args.push(cmd_to_run);
+    }
 
-    let status = Command::new(ssh_cmd.as_str())
-        .args(&ssh_args)
-        .status();
+    let status = if password_mode {
+        run_password_ssh(&ssh_cmd, &ssh_args, interactive)
+    } else {
+        Command::new(ssh_cmd.as_str())
+            .args(&ssh_args)
+            .status()
+            .map(|s| s.code().unwrap_or(1))
+            .map_err(|e| e.to_string())
+    };
 
-    std::process::exit(status.map(|s| s.code().unwrap_or(1)).unwrap_or(1));
+    std::process::exit(status.unwrap_or_else(|e| {
+        eprintln!("{}", e);
+        1
+    }));
+}
+
+fn run_password_ssh(ssh_cmd: &str, ssh_args: &[String], interactive: bool) -> Result<i32, String> {
+    let askpass_path = env::current_exe()
+        .map_err(|e| format!("resolve current exe failed: {}", e))?
+        .to_string_lossy()
+        .to_string();
+
+    let mut command = Command::new(ssh_cmd);
+    command
+        .args(ssh_args)
+        .env("SSH_ASKPASS", askpass_path)
+        .env("SSH_ASKPASS_REQUIRE", "force")
+        .env("DISPLAY", "ssh-as-executable")
+        .env(ASKPASS_MODE_ENV, "1")
+        .env(ASKPASS_TOKEN_ENV, generated::get_askpass_token())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+
+    if interactive {
+        command.stdin(Stdio::inherit());
+    } else {
+        command.stdin(Stdio::null());
+    }
+
+    command
+        .status()
+        .map(|status| status.code().unwrap_or(1))
+        .map_err(|e| format!("spawn ssh failed: {}", e))
 }

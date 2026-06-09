@@ -4,6 +4,7 @@ SSH-as-Executable 交互式构建脚本
 """
 
 import os
+import getpass
 import shutil
 import subprocess
 import sys
@@ -42,10 +43,29 @@ def main():
     port_input = input(f"SSH 端口 [{default_port}]: ").strip()
     target_port = port_input if port_input else default_port
 
-    # SSH 私钥路径
-    default_key = os.environ.get("SSH_KEY_PATH", "~/.ssh/id_ed25519")
-    key_input = input(f"SSH 私钥路径 [{default_key}]: ").strip()
-    ssh_key_path = key_input if key_input else default_key
+    # SSH 认证方式
+    default_auth = os.environ.get("SSH_AUTH_MODE", "key").strip().lower()
+    if default_auth not in {"key", "password"}:
+        default_auth = "key"
+    auth_input = input(f"SSH 认证方式 key/password [{default_auth}]: ").strip().lower()
+    auth_mode = auth_input if auth_input else default_auth
+    while auth_mode not in {"key", "password"}:
+        auth_mode = input("SSH 认证方式只能是 key 或 password: ").strip().lower()
+
+    ssh_key_path = ""
+    ssh_password = ""
+    if auth_mode == "key":
+        default_key = os.environ.get("SSH_KEY_PATH", "~/.ssh/id_ed25519")
+        key_input = input(f"SSH 私钥路径 [{default_key}]: ").strip()
+        ssh_key_path = key_input if key_input else default_key
+    else:
+        ssh_password = os.environ.get("SSH_PASSWORD", "")
+        if ssh_password:
+            keep_password = input("已从环境变量读取 SSH_PASSWORD，直接使用? (Y/n): ").strip().lower()
+            if keep_password == "n":
+                ssh_password = ""
+        while not ssh_password:
+            ssh_password = getpass.getpass("SSH 密码 (不会回显): ")
 
     # exe 输出名字
     default_name = os.environ.get("TARGET_NAME", "ssh-proxy")
@@ -61,7 +81,11 @@ def main():
     print(f"  目标服务器: {target_host}")
     print(f"  SSH 端口:   {target_port}")
     print(f"  SSH 用户名: {target_user}")
-    print(f"  私钥路径:   {ssh_key_path}")
+    print(f"  认证方式:   {auth_mode}")
+    if auth_mode == "key":
+        print(f"  私钥路径:   {ssh_key_path}")
+    else:
+        print("  SSH 密码:   <已封装>")
     print(f"  exe 名字:   {exe_name}")
     print("-" * 50)
     print()
@@ -84,6 +108,8 @@ def main():
     env["TARGET_HOST"] = target_host
     env["TARGET_USER"] = target_user
     env["SSH_KEY_PATH"] = ssh_key_path
+    env["SSH_AUTH_MODE"] = auth_mode
+    env["SSH_PASSWORD"] = ssh_password
     env["TARGET_PORT"] = target_port
     env["TARGET_NAME"] = exe_name
 
@@ -98,19 +124,15 @@ def main():
         print("构建失败!")
         sys.exit(1)
 
-    # 查找 exe 并复制到项目根目录
+    # 查找 exe 并复制到 dist 目录
     src_exe = Path(__file__).parent / "target" / "release" / "app.exe"
     if not src_exe.exists():
         src_exe = Path(__file__).parent / "target" / "release" / "ssh-proxy.exe"
 
-    dst_exe = Path(__file__).parent / exe_name
+    dist_dir = Path(__file__).parent / "dist"
+    dist_dir.mkdir(exist_ok=True)
+    dst_exe = dist_dir / exe_name
     shutil.copy2(src_exe, dst_exe)
-
-    # 清理敏感文件：生成的混淆代码（含凭据）
-    generated_rs = Path(__file__).parent / "src" / "generated.rs"
-    if generated_rs.exists():
-        generated_rs.unlink()
-        print("  ✓ src/generated.rs 已删除（敏感混淆数据已清除）")
 
     print()
     print("=" * 50)

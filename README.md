@@ -1,6 +1,6 @@
 # ssh-as-executable
 
-**不想暴露 SSH 密钥路径？不想让 Agent 看到密钥内容？用它。**
+**不想暴露 SSH 密钥路径或密码？不想让 Agent 看到连接细节？用它。**
 
 将 SSH 配置编译进一个独立 exe，用完即删——Agent 只需知道 exe 路径，不知道任何连接细节。
 
@@ -8,16 +8,16 @@
 
 | 裸跑 ssh 命令 | 用 ssh-as-executable |
 |---------------|---------------------|
-| Agent 看到 `ssh -i ~/.ssh/id_ed25519 root@host` | Agent 只看到 `proxy.exe "whoami"` |
-| 密钥路径暴露在进程参数 | 密钥完全封装在 exe 内部 |
+| Agent 看到 `ssh -i ~/.ssh/id_ed25519 root@host` 或输入密码 | Agent 只看到 `proxy.exe "whoami"` |
+| 密钥路径/密码暴露在命令或交互里 | 连接配置封装在 exe 内部 |
 | 每次都要处理 SSH 提示 | 一次性配置，永久有效 |
 | 删除/撤销麻烦 | 删 exe 即可吊销 |
 
 ## 安全特性
 
-- **密钥内容永不暴露**：密钥路径和内容在 exe 内部计算生成
-- **静态分析无效**：字符串搜索找不到明文 IP/用户名/密钥路径
-- **subAgent 无法识别**：测试表明即使无上下文分析也无法识别为 SSH 工具
+- **Agent 调用命令不含连接秘密**：Agent 只运行 exe，看不到密钥路径或密码
+- **静态字符串搜索难以命中**：直接搜索找不到明文 IP/用户名/密钥路径/密码
+- **黑盒分发更简单**：subAgent 或同事只需要运行 exe，不需要知道 SSH 参数或额外输入密码
 - **即时吊销**：删除 exe = 吊销访问权限，无需修改服务器
 
 ## 快速开始
@@ -25,10 +25,22 @@
 ### 编译
 
 ```bash
-# 设置环境变量
+# 密钥模式
 export TARGET_HOST="YOUR_SERVER_IP"
 export TARGET_USER="root"
+export SSH_AUTH_MODE="key"
 export SSH_KEY_PATH="$HOME/.ssh/YOUR_KEY_NAME"
+
+# 编译
+cargo build --release
+```
+
+```bash
+# 密码模式
+export TARGET_HOST="YOUR_SERVER_IP"
+export TARGET_USER="root"
+export SSH_AUTH_MODE="password"
+export SSH_PASSWORD="YOUR_PASSWORD"
 
 # 编译
 cargo build --release
@@ -53,22 +65,23 @@ echo "whoami" | ./target/release/app.exe --stdin
 
 | 文件 | 说明 |
 |------|------|
-| `src/generated.rs` | 自动生成 - 包含混淆后的配置 |
 | `src/main.rs` | SSH 代理逻辑 |
-| `build.rs` | 编译时生成混淆代码 |
+| `build.rs` | 编译时在 Cargo `OUT_DIR` 生成混淆代码 |
 
 ## 工作原理
 
 ```
-配置(IP/用户名/密钥) → build.rs 混淆 → generated.rs → 编译 → exe
-                                    ↓
-                        算法计算生成，非数据存储
+配置(IP/用户名/密钥路径或密码) → build.rs 混淆 → Cargo OUT_DIR/generated.rs → 编译 → exe
+                                             ↓
+                                 算法计算生成，非数据存储
 ```
 
 1. `build.rs` 在编译时读取环境变量
 2. 将配置转换为算术表达式（如 `c(200,0,79)` = 121）
-3. 生成的 `generated.rs` 在运行时计算得出真实值
-4. 关键秘密从不以明文形式存在于二进制
+3. 生成代码位于 Cargo `OUT_DIR`，运行时计算得出真实值
+4. key 模式用普通 OpenSSH 进程执行 `ssh -i`，不使用 PTY
+5. password 模式用 OpenSSH `SSH_ASKPASS`，把当前 exe 临时作为 askpass helper 返回密码，也不使用 PTY
+6. 关键秘密不以连续明文字符串形式存在于二进制
 
 ## 构建配置
 
@@ -78,13 +91,23 @@ echo "whoami" | ./target/release/app.exe --stdin
 |------|------|--------|------|
 | `TARGET_HOST` | 是 | - | 目标服务器 IP |
 | `TARGET_USER` | 否 | root | SSH 用户名 |
-| `SSH_KEY_PATH` | 是 | - | 本地私钥路径 |
+| `SSH_AUTH_MODE` | 否 | key | 认证方式：`key` 或 `password` |
+| `SSH_KEY_PATH` | key 模式是 | - | 本地私钥路径 |
+| `SSH_PASSWORD` | password 模式是 | - | SSH 密码 |
 | `TARGET_PORT` | 否 | 22 | SSH 端口 |
 
 ### 示例
 
 ```bash
-TARGET_HOST="YOUR_SERVER_IP" TARGET_USER="root" SSH_KEY_PATH="$HOME/.ssh/YOUR_KEY_NAME" TARGET_PORT="22" cargo build --release
+TARGET_HOST="YOUR_SERVER_IP" TARGET_USER="root" SSH_AUTH_MODE="key" SSH_KEY_PATH="$HOME/.ssh/YOUR_KEY_NAME" TARGET_PORT="22" cargo build --release
+TARGET_HOST="YOUR_SERVER_IP" TARGET_USER="root" SSH_AUTH_MODE="password" SSH_PASSWORD="YOUR_PASSWORD" TARGET_PORT="22" cargo build --release
+```
+
+Windows 下也可以使用 `build.ps1`，输出会复制到 ignored 的 `dist/` 目录：
+
+```powershell
+.\build.ps1 -Name "server-key" -TargetHost "YOUR_SERVER_IP" -User "root" -AuthMode key -KeyPath "C:\path\to\key" -Port 22
+.\build.ps1 -Name "server-password" -TargetHost "YOUR_SERVER_IP" -User "root" -AuthMode password -Password "YOUR_PASSWORD" -Port 22
 ```
 
 ## 安全验证
@@ -96,8 +119,11 @@ strings target/release/app.exe | grep "YOUR_SERVER_IP"
 # 搜索密钥路径 - 无结果
 strings target/release/app.exe | grep "YOUR_KEY_NAME"
 
-# 搜索 ssh 相关 - 无结果
-strings target/release/app.exe | grep -i "ssh"
+# 搜索密码 - 无结果
+strings target/release/app.exe | grep "YOUR_PASSWORD"
+
+# 搜索用户名 - 无结果
+strings target/release/app.exe | grep "root"
 ```
 
 ## 项目结构
@@ -107,8 +133,7 @@ ssh-as-executable/
 ├── build.rs           # 编译时混淆代码生成
 ├── Cargo.toml        # 项目配置
 ├── src/
-│   ├── main.rs      # SSH 代理入口
-│   └── generated.rs # 自动生成（勿手动编辑）
+│   └── main.rs      # SSH 代理入口
 └── README.md
 ```
 
@@ -121,8 +146,10 @@ ssh-as-executable/
 ## 限制
 
 - 目标 IP 和用户名在 SSH 握手时会暴露给服务器
-- 密钥路径虽然隐藏，但 `ssh -i` 参数仍会出现在进程树中（密钥内容不会）
-- 需要本地有 `ssh` 命令且密钥已授权
+- 密钥模式下 `ssh -i` 参数仍会出现在进程树中（密钥内容不会）
+- 密码模式依赖 OpenSSH `SSH_ASKPASS` 机制；目标机器必须允许密码或 keyboard-interactive 登录
+- 密码模式的密码可被 exe 在运行时恢复；它提高静态逆向成本，但不等同于硬件密钥或系统凭据库
+- 需要本地有 `ssh` 命令
 
 ## 名称说明
 
